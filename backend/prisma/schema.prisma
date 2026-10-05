@@ -100,6 +100,8 @@ model Speaker {
   area         Area          @relation(fields: [areaId], references: [id])
   name         String
   location     String
+  latitude     Float?
+  longitude    Float?
   deviceId     String        @unique
   deviceKey    String
   status       SpeakerStatus @default(OFFLINE)

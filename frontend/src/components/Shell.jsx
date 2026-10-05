@@ -10,6 +10,7 @@ const NAV = [
   { to: "/areas", label: "Areas", group: "Masters", roles: ["SUPERADMIN", "ADMIN"] },
   { to: "/users", label: "Users", group: "Masters", roles: ["SUPERADMIN", "ADMIN"] },
   { to: "/speakers", label: "Speakers", group: "Field" },
+  { to: "/map", label: "Map", group: "Field" },
   { to: "/broadcast", label: "Live broadcast", group: "Field" },
   { to: "/audio", label: "Audio library", group: "Field" },
   { to: "/announcements", label: "Announcements", group: "Field" },

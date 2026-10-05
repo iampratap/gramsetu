@@ -6,6 +6,7 @@ import { Login } from "./pages/Login.jsx";
 import { Dashboard } from "./pages/Dashboard.jsx";
 import { PeoplePage } from "./pages/People.jsx";
 import { Areas } from "./pages/Areas.jsx";
+import { SpeakerMap } from "./pages/SpeakerMap.jsx";
 import { Speakers } from "./pages/Speakers.jsx";
 import { AudioLibrary } from "./pages/Audio.jsx";
 import { Announcements } from "./pages/Announcements.jsx";
@@ -43,6 +44,7 @@ export default function App() {
         <Route path="areas" element={<Guard roles={["SUPERADMIN", "ADMIN"]}><Areas /></Guard>} />
         <Route path="users" element={<Guard roles={["SUPERADMIN", "ADMIN"]}><PeoplePage mode="users" /></Guard>} />
         <Route path="speakers" element={<Speakers />} />
+        <Route path="map" element={<SpeakerMap />} />
         <Route path="audio" element={<AudioLibrary />} />
         <Route path="announcements" element={<Announcements />} />
         <Route path="live" element={<Navigate to="/speakers" replace />} />

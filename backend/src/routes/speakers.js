@@ -11,6 +11,7 @@ import {
   parse,
   presentSpeaker,
 } from "../lib/http.js";
+import { nextOccurrence } from "../lib/schedule.js";
 import { requireAuth, wrap } from "../middleware/auth.js";
 import { disconnectDevice, liveView, sendCommand, speakerChanged } from "../realtime/hub.js";
 
@@ -25,7 +26,17 @@ const speakerSchema = z.object({
   status: z.enum(["ONLINE", "OFFLINE", "MAINTENANCE"]).optional(),
   notes: z.string().trim().max(500).optional().or(z.literal("")),
   isActive: z.boolean().optional(),
+  latitude: z.number().min(-90).max(90).nullable().optional(),
+  longitude: z.number().min(-180).max(180).nullable().optional(),
 });
+
+function coordinates(body) {
+  if (!("latitude" in body) && !("longitude" in body)) return {};
+  const latitude = body.latitude ?? null;
+  const longitude = body.longitude ?? null;
+  if ((latitude === null) !== (longitude === null)) throw new HttpError(400, "Give both latitude and longitude, or neither");
+  return { latitude, longitude };
+}
 
 router.get(
   "/",
@@ -62,6 +73,65 @@ router.get(
       orderBy: [{ area: { name: "asc" } }, { name: "asc" }],
     });
     res.json({ speakers: speakers.map(liveView) });
+  }),
+);
+
+/** What each visible speaker plays next, worked out on the server so offline speakers have it too. */
+router.get(
+  "/upcoming",
+  wrap(async (req, res) => {
+    const speakerWhere = isGlobal(req.user) ? {} : { areaId: req.user.areaId };
+    const yesterday = new Date(Date.now() - 86_400_000).toISOString().slice(0, 10);
+    const [timed, waiting] = await Promise.all([
+      prisma.announcement.findMany({
+        where: {
+          status: "APPROVED",
+          isActive: true,
+          repeat: { not: "NOW" },
+          OR: [{ endDate: null }, { endDate: { gte: yesterday } }],
+          NOT: { repeat: "ONCE", startDate: { lt: yesterday } },
+          deliveries: { some: { status: "SCHEDULED", speaker: speakerWhere } },
+        },
+        select: {
+          id: true,
+          title: true,
+          repeat: true,
+          startDate: true,
+          endDate: true,
+          times: true,
+          daysOfWeek: true,
+          timezone: true,
+          deliveries: { where: { status: "SCHEDULED", speaker: speakerWhere }, select: { speakerId: true } },
+        },
+      }),
+      prisma.announcementDelivery.groupBy({
+        by: ["speakerId"],
+        where: {
+          status: { in: ["QUEUED", "SENT"] },
+          speaker: speakerWhere,
+          announcement: { status: "APPROVED", repeat: "NOW", isActive: true },
+        },
+        _count: { _all: true },
+      }),
+    ]);
+
+    const now = Date.now();
+    const upcoming = {};
+    const entry = (speakerId) => (upcoming[speakerId] ||= { next: null, next24h: 0, waiting: 0 });
+    const endOfDay = now + 24 * 3600_000;
+    for (const announcement of timed) {
+      const at = nextOccurrence(announcement, now);
+      if (at === null) continue;
+      for (const { speakerId } of announcement.deliveries) {
+        const item = entry(speakerId);
+        if (at <= endOfDay) item.next24h += 1;
+        if (!item.next || at < new Date(item.next.at).getTime()) {
+          item.next = { announcementId: announcement.id, title: announcement.title, repeat: announcement.repeat, at: new Date(at).toISOString() };
+        }
+      }
+    }
+    for (const row of waiting) entry(row.speakerId).waiting = row._count._all;
+    res.json({ upcoming, serverTime: new Date(now).toISOString() });
   }),
 );
 
@@ -134,6 +204,7 @@ router.post(
         status: body.status || "OFFLINE",
         notes: body.notes || null,
         isActive: body.isActive ?? true,
+        ...coordinates(body),
       },
       include: { area: { select: { id: true, name: true, code: true } } },
     });
@@ -169,6 +240,7 @@ router.patch(
         ...("status" in body ? { status: body.status } : {}),
         ...("notes" in body ? { notes: body.notes || null } : {}),
         ...("isActive" in body ? { isActive: body.isActive } : {}),
+        ...coordinates(body),
       },
       include: { area: { select: { id: true, name: true, code: true } } },
     });

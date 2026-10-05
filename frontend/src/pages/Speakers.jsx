@@ -1,10 +1,12 @@
 import { useEffect, useMemo, useState } from "react";
-import { Link } from "react-router-dom";
+import { Link, useSearchParams } from "react-router-dom";
 import { api } from "../api.js";
 import { useAuth } from "../auth.jsx";
+import { LocationPicker } from "../components/LocationPicker.jsx";
 import { Badge, Banner, Empty, Field, Modal, PageHead } from "../components/ui.jsx";
 import { STATUS_LABEL, formatClock, formatWhen } from "../format.js";
 import { useLiveSpeakers, useTicker } from "../live.js";
+import { parseCoordinate } from "../map.js";
 
 const blank = {
   name: "",
@@ -14,7 +16,13 @@ const blank = {
   notes: "",
   areaId: "",
   isActive: true,
+  latitude: "",
+  longitude: "",
 };
+
+function editable(speaker, extra = {}) {
+  return { ...speaker, notes: speaker.notes || "", latitude: speaker.latitude ?? "", longitude: speaker.longitude ?? "", error: "", ...extra };
+}
 
 function effectiveStatus(speaker) {
   return speaker.connected ? "ONLINE" : speaker.status;
@@ -26,7 +34,8 @@ export function Speakers() {
   const { speakers, reports, connected } = useLiveSpeakers();
   const [areas, setAreas] = useState([]);
   const [audio, setAudio] = useState([]);
-  const [query, setQuery] = useState("");
+  const [searchParams] = useSearchParams();
+  const [query, setQuery] = useState(() => searchParams.get("q") || "");
   const [areaId, setAreaId] = useState("");
   const [status, setStatus] = useState("");
   const [error, setError] = useState("");
@@ -59,7 +68,7 @@ export function Speakers() {
       const data = await api(`/api/speakers?q=${encodeURIComponent(speaker.deviceId)}`);
       const full = data.speakers.find((item) => item.id === speaker.id);
       if (!full) throw new Error("Speaker not found");
-      setForm({ ...full, notes: full.notes || "", error: "" });
+      setForm(editable(full));
     } catch (err) {
       setError(err.message);
     }
@@ -146,7 +155,7 @@ export function Speakers() {
           </ul>
         )}
       </div>
-      {form ? <SpeakerForm form={form} setForm={setForm} areas={areas} global={global} /> : null}
+      {form ? <SpeakerForm form={form} setForm={setForm} areas={areas} global={global} speakers={speakers} /> : null}
     </section>
   );
 }
@@ -328,13 +337,34 @@ function SetupCommand({ deviceId, deviceKey }) {
   );
 }
 
-function SpeakerForm({ form, setForm, areas, global }) {
+function SpeakerForm({ form, setForm, areas, global, speakers }) {
   function update(key, value) {
     setForm((current) => ({ ...current, [key]: value }));
   }
 
+  const areaCenter = useMemo(() => {
+    const placed = speakers.filter((item) => item.areaId === form.areaId && item.latitude !== null && item.longitude !== null);
+    if (!placed.length) return null;
+    return [
+      placed.reduce((sum, item) => sum + item.latitude, 0) / placed.length,
+      placed.reduce((sum, item) => sum + item.longitude, 0) / placed.length,
+    ];
+  }, [speakers, form.areaId]);
+
   async function save(event) {
     event.preventDefault();
+    const latitude = parseCoordinate(form.latitude, 90);
+    const longitude = parseCoordinate(form.longitude, 180);
+    const typedLat = String(form.latitude ?? "").trim() !== "";
+    const typedLng = String(form.longitude ?? "").trim() !== "";
+    if ((typedLat && latitude === null) || (typedLng && longitude === null)) {
+      update("error", "Latitude must be between -90 and 90 and longitude between -180 and 180.");
+      return;
+    }
+    if ((latitude === null) !== (longitude === null)) {
+      update("error", "Give both latitude and longitude, or clear both.");
+      return;
+    }
     const payload = {
       name: form.name,
       location: form.location,
@@ -343,6 +373,8 @@ function SpeakerForm({ form, setForm, areas, global }) {
       notes: form.notes,
       areaId: form.areaId,
       isActive: form.isActive,
+      latitude,
+      longitude,
     };
     try {
       if (form.id) {
@@ -351,7 +383,7 @@ function SpeakerForm({ form, setForm, areas, global }) {
       } else {
         // Keep the dialog open on the new speaker so its setup command can be copied.
         const data = await api("/api/speakers", { method: "POST", body: payload });
-        setForm({ ...data.speaker, notes: data.speaker.notes || "", error: "", created: true });
+        setForm(editable(data.speaker, { created: true }));
       }
     } catch (err) {
       update("error", err.message);
@@ -362,7 +394,7 @@ function SpeakerForm({ form, setForm, areas, global }) {
     if (!window.confirm("Make a new device key? The speaker disconnects until setup is run again with the new key.")) return;
     try {
       const data = await api(`/api/speakers/${form.id}/roll-key`, { method: "POST" });
-      setForm({ ...data.speaker, notes: data.speaker.notes || "", error: "" });
+      setForm(editable(data.speaker));
     } catch (err) {
       update("error", err.message);
     }
@@ -394,6 +426,14 @@ function SpeakerForm({ form, setForm, areas, global }) {
             <input value={form.location} onChange={(event) => update("location", event.target.value)} required />
           </Field>
         </div>
+        <Field label="Map position" hint="Shown on the Map page.">
+          <LocationPicker
+            latitude={form.latitude}
+            longitude={form.longitude}
+            fallbackCenter={areaCenter}
+            onChange={(latitude, longitude) => setForm((current) => ({ ...current, latitude, longitude }))}
+          />
+        </Field>
         <Field label="Device id" hint={form.id ? undefined : "Leave blank to generate one."}>
           <input value={form.deviceId || ""} onChange={(event) => update("deviceId", event.target.value)} />
         </Field>

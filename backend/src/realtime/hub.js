@@ -21,6 +21,8 @@ export function liveView(speaker) {
     id: speaker.id,
     name: speaker.name,
     location: speaker.location,
+    latitude: speaker.latitude ?? null,
+    longitude: speaker.longitude ?? null,
     deviceId: speaker.deviceId,
     areaId: speaker.areaId,
     area: speaker.area || null,
