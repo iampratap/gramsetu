@@ -90,6 +90,9 @@ export async function openBroadcastInput({ microphone = true, onFrame, onLevel }
   const monitor = context.createGain();
   monitor.gain.value = 0;
   monitor.connect(context.destination);
+  const clipGain = context.createGain();
+  clipGain.connect(tap);
+  clipGain.connect(monitor);
   let clip = null;
 
   const downsampler = new Downsampler(context.sampleRate, BROADCAST_RATE);
@@ -120,17 +123,48 @@ export async function openBroadcastInput({ microphone = true, onFrame, onLevel }
 
   if (context.state === "suspended") await context.resume();
 
-  function stopClip() {
-    if (!clip) return;
-    const current = clip;
-    clip = null;
-    current.node.onended = null;
+  function detachSource(entry) {
+    const node = entry.node;
+    if (!node) return;
+    entry.node = null;
+    node.onended = null;
     try {
-      current.node.stop();
+      node.stop();
     } catch {
       // already stopped
     }
-    current.node.disconnect();
+    node.disconnect();
+  }
+
+  // A buffer source cannot pause or seek, so each resume/seek starts a fresh one at the wanted offset.
+  function startSource(entry, offset) {
+    detachSource(entry);
+    const node = context.createBufferSource();
+    node.buffer = entry.buffer;
+    node.connect(clipGain);
+    node.onended = () => {
+      if (entry.node !== node) return;
+      entry.node = null;
+      if (clip === entry) clip = null;
+      node.disconnect();
+      entry.onEnded?.();
+    };
+    entry.node = node;
+    entry.paused = false;
+    entry.startedAt = context.currentTime - offset;
+    node.start(0, offset);
+  }
+
+  function clipPosition() {
+    if (!clip) return 0;
+    if (clip.paused) return clip.offset;
+    return Math.min(clip.duration, Math.max(0, context.currentTime - clip.startedAt));
+  }
+
+  function stopClip() {
+    if (!clip) return;
+    detachSource(clip);
+    clip = null;
   }
 
   return {
@@ -146,27 +180,39 @@ export async function openBroadcastInput({ microphone = true, onFrame, onLevel }
     async playClip(data, { onEnded } = {}) {
       const buffer = await context.decodeAudioData(data);
       stopClip();
-      const node = context.createBufferSource();
-      node.buffer = buffer;
-      node.connect(tap);
-      node.connect(monitor);
-      const entry = { node, startedAt: context.currentTime, duration: buffer.duration };
-      node.onended = () => {
-        if (clip !== entry) return;
-        clip = null;
-        node.disconnect();
-        onEnded?.();
-      };
+      const entry = { buffer, duration: buffer.duration, node: null, paused: false, offset: 0, startedAt: 0, onEnded };
       clip = entry;
-      node.start();
+      startSource(entry, 0);
       return { duration: buffer.duration };
     },
     stopClip,
-    clipPosition() {
-      return clip ? Math.min(clip.duration, context.currentTime - clip.startedAt) : 0;
+    clipPosition,
+    clipPaused() {
+      return Boolean(clip?.paused);
+    },
+    pauseClip() {
+      if (!clip || clip.paused) return;
+      clip.offset = clipPosition();
+      detachSource(clip);
+      clip.paused = true;
+    },
+    resumeClip() {
+      if (!clip?.paused) return;
+      startSource(clip, Math.min(clip.offset, Math.max(0, clip.duration - 0.05)));
+    },
+    seekClip(seconds) {
+      if (!clip) return;
+      const offset = Math.min(Math.max(0, seconds), Math.max(0, clip.duration - 0.05));
+      if (clip.paused) clip.offset = offset;
+      else startSource(clip, offset);
+    },
+    /** Level of clips in the broadcast mix; 1 is the file's own level. */
+    setClipVolume(value) {
+      clipGain.gain.setTargetAtTime(value, context.currentTime, 0.02);
     },
     close() {
       stopClip();
+      clipGain.disconnect();
       tap.port.onmessage = null;
       keepAlive.stop();
       keepAlive.disconnect();

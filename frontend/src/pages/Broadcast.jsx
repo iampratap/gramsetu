@@ -24,6 +24,8 @@ const SPEAKER_STATUS = {
   cancelled: "Not reached",
 };
 const RETRYABLE = new Set(["failed", "stopped", "busy"]);
+const CLIP_VOLUME_STEP = 10;
+const CLIP_VOLUME_MAX = 150;
 const MAX_SEND_BACKLOG = 64 * 1024;
 
 export function Broadcast() {
@@ -46,6 +48,10 @@ export function Broadcast() {
   const [clipBusy, setClipBusy] = useState(false);
   const [monitor, setMonitor] = useState(false);
   const [endWithAudio, setEndWithAudio] = useState(true);
+  const [clipPaused, setClipPaused] = useState(false);
+  const [clipVolume, setClipVolume] = useState(100);
+  const [scrub, setScrub] = useState(null);
+  const [speakerVolume, setSpeakerVolume] = useState({ busy: false, message: "" });
   const socketRef = useRef(null);
   const micRef = useRef(null);
   const endWithAudioRef = useRef(endWithAudio);
@@ -80,6 +86,8 @@ export function Broadcast() {
     setMuted(false);
     setClip(null);
     setClipBusy(false);
+    setClipPaused(false);
+    setScrub(null);
   }
 
   function clipLabel() {
@@ -106,10 +114,14 @@ export function Broadcast() {
       const { duration } = await input.playClip(data, {
         onEnded: () => {
           setClip(null);
+          setClipPaused(false);
+          setScrub(null);
           if (!input.hasMicrophone && endWithAudioRef.current) stop();
         },
       });
       setClip({ label, duration });
+      setClipPaused(false);
+      setScrub(null);
     } catch (err) {
       setError(`Could not play the audio: ${err?.message || err}`);
     } finally {
@@ -120,6 +132,53 @@ export function Broadcast() {
   function stopClip() {
     micRef.current?.stopClip();
     setClip(null);
+    setClipPaused(false);
+    setScrub(null);
+  }
+
+  function togglePause() {
+    const input = micRef.current;
+    if (!input || !clip) return;
+    if (clipPaused) input.resumeClip();
+    else input.pauseClip();
+    setClipPaused(!clipPaused);
+  }
+
+  function commitSeek() {
+    if (scrub === null) return;
+    micRef.current?.seekClip(scrub);
+    setScrub(null);
+  }
+
+  function skipBy(seconds) {
+    const input = micRef.current;
+    if (!input || !clip) return;
+    input.seekClip(input.clipPosition() + seconds);
+    setScrub(null);
+  }
+
+  function changeClipVolume(delta) {
+    const next = Math.min(CLIP_VOLUME_MAX, Math.max(0, clipVolume + delta));
+    setClipVolume(next);
+    micRef.current?.setClipVolume(next / 100);
+  }
+
+  async function changeSpeakerVolume(action) {
+    const targets = statuses.filter((item) => item.status === "playing");
+    if (!targets.length) return;
+    setSpeakerVolume({ busy: true, message: "" });
+    const results = await Promise.allSettled(
+      targets.map((item) => api(`/api/speakers/${item.id}/command`, { method: "POST", body: { action } })),
+    );
+    const levels = results.map((result) => result.value?.state?.volume).filter((value) => value !== undefined);
+    const failed = results.filter((result) => result.status === "rejected").length;
+    setSpeakerVolume({
+      busy: false,
+      message:
+        `${action === "volume_up" ? "Raised" : "Lowered"} on ${targets.length - failed} of ${targets.length} speaker(s)` +
+        (levels.length ? ` · now ${Math.min(...levels)}${Math.min(...levels) === Math.max(...levels) ? "" : `–${Math.max(...levels)}`}%` : "") +
+        (failed ? ` · ${failed} did not answer` : ""),
+    });
   }
 
   function toggleMonitor() {
@@ -187,6 +246,7 @@ export function Broadcast() {
     }
     micRef.current = mic;
     mic.setMonitor(monitor);
+    mic.setClipVolume(clipVolume / 100);
     const broadcastTitle = title.trim() || (mode === "audio" && clipReady ? clipLabel() : "");
     if (broadcastTitle !== title) setTitle(broadcastTitle);
 
@@ -255,7 +315,7 @@ export function Broadcast() {
   const live = phase === "live" || phase === "ending";
   const onAir = statuses.filter((item) => item.status === "playing").length;
   const selectedOnline = speakers.filter((speaker) => selected.has(speaker.id) && speaker.connected).length;
-  const clipPosition = clip ? micRef.current?.clipPosition() || 0 : 0;
+  const clipPosition = clip ? (scrub ?? micRef.current?.clipPosition() ?? 0) : 0;
 
   const clipPicker = (
     <div className="clip-picker">
@@ -320,7 +380,7 @@ export function Broadcast() {
                 <div>
                   <strong>{title.trim() || "Live announcement"}</strong>
                   <div className="muted">
-                    {micRef.current?.hasMicrophone ? (muted ? "Microphone muted" : "Speak now") : clip ? "Playing audio" : "Audio only · nothing playing"} ·{" "}
+                    {micRef.current?.hasMicrophone ? (muted ? "Microphone muted" : "Speak now") : clip ? (clipPaused ? "Audio paused" : "Playing audio") : "Audio only · nothing playing"} ·{" "}
                     {formatClock(startedAt ? (now - startedAt) / 1000 : 0)}
                   </div>
                 </div>
@@ -341,20 +401,43 @@ export function Broadcast() {
                   <div className="clip-now">
                     <div>
                       <strong>{clip.label}</strong>
-                      <span className="muted"> · {formatClock(clipPosition)} / {formatClock(clip.duration)}</span>
+                      <span className="muted"> · {clipPaused ? "Paused" : "Playing"}</span>
                     </div>
-                    <div className="clip-progress">
-                      <span style={{ width: `${clip.duration ? Math.round((clipPosition / clip.duration) * 100) : 0}%` }} />
+                    <div className="clip-seek">
+                      <span className="muted">{formatClock(clipPosition)}</span>
+                      <input
+                        type="range"
+                        min="0"
+                        max={clip.duration || 0}
+                        step="0.1"
+                        value={Math.min(clipPosition, clip.duration || 0)}
+                        onChange={(event) => setScrub(Number(event.target.value))}
+                        onPointerUp={commitSeek}
+                        onKeyUp={commitSeek}
+                        onBlur={commitSeek}
+                        disabled={phase === "ending"}
+                        aria-label="Seek"
+                      />
+                      <span className="muted">{formatClock(clip.duration)}</span>
+                    </div>
+                    <div className="clip-controls">
+                      <button className="btn ghost small" type="button" onClick={() => skipBy(-10)} disabled={phase === "ending"} aria-label="Back 10 seconds">−10 s</button>
+                      <button className="btn primary small" type="button" onClick={togglePause} disabled={phase === "ending"}>
+                        {clipPaused ? "Resume" : "Pause"}
+                      </button>
+                      <button className="btn ghost small" type="button" onClick={() => skipBy(10)} disabled={phase === "ending"} aria-label="Forward 10 seconds">+10 s</button>
+                      <button className="btn ghost small" type="button" onClick={stopClip} disabled={phase === "ending"}>Stop</button>
+                      <span className="control-gap" />
+                      <button className="btn ghost small" type="button" onClick={() => changeClipVolume(-CLIP_VOLUME_STEP)} disabled={clipVolume <= 0} aria-label="Audio volume down">Vol −</button>
+                      <span className="clip-volume" title="Level of the audio in the broadcast">{clipVolume}%</span>
+                      <button className="btn ghost small" type="button" onClick={() => changeClipVolume(CLIP_VOLUME_STEP)} disabled={clipVolume >= CLIP_VOLUME_MAX} aria-label="Audio volume up">Vol +</button>
                     </div>
                   </div>
                 ) : null}
                 {clipPicker}
                 <div className="broadcast-actions">
                   <button className="btn" type="button" onClick={playChosenClip} disabled={!clipReady || clipBusy || phase === "ending"}>
-                    {clipBusy ? "Loading…" : clip ? "Play selected instead" : "Play audio"}
-                  </button>
-                  <button className="btn ghost" type="button" onClick={stopClip} disabled={!clip || phase === "ending"}>
-                    Stop audio
+                    {clipBusy ? "Loading…" : clip ? "Change audio" : "Play audio"}
                   </button>
                 </div>
                 {!micRef.current?.hasMicrophone ? (
@@ -363,6 +446,13 @@ export function Broadcast() {
                     End the broadcast when the audio finishes
                   </label>
                 ) : null}
+              </div>
+
+              <div className="speaker-volume">
+                <span>Speaker volume</span>
+                <button className="btn ghost small" type="button" onClick={() => changeSpeakerVolume("volume_down")} disabled={!onAir || speakerVolume.busy || phase === "ending"}>Vol −</button>
+                <button className="btn ghost small" type="button" onClick={() => changeSpeakerVolume("volume_up")} disabled={!onAir || speakerVolume.busy || phase === "ending"}>Vol +</button>
+                <small className="muted">{speakerVolume.busy ? "Sending…" : speakerVolume.message || "Changes the volume on every speaker on air and stays after the broadcast."}</small>
               </div>
 
               <div className="broadcast-actions">

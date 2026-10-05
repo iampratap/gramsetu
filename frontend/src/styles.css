@@ -838,3 +838,10 @@ body.nav-open { overflow: hidden; }
   .map-layout { grid-template-columns: 1fr; }
   .speaker-map { height: 60vh; min-height: 340px; }
 }
+
+.clip-seek { display: grid; grid-template-columns: auto 1fr auto; gap: 8px; align-items: center; font-variant-numeric: tabular-nums; font-size: 0.82rem; }
+.clip-seek input[type="range"] { width: 100%; accent-color: var(--accent); }
+.clip-controls { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; }
+.clip-volume { min-width: 44px; text-align: center; font-variant-numeric: tabular-nums; font-size: 0.85rem; font-weight: 500; }
+.speaker-volume { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; font-size: 0.85rem; font-weight: 500; }
+.speaker-volume small { flex-basis: 100%; font-weight: 400; }
