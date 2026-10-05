@@ -54,7 +54,7 @@ function popupHtml(speaker, info, next, now) {
         ? `${escapeHtml(playing.title)} <span class="muted">· ${escapeHtml(STATUS_LABEL[playing.source] || playing.source || "")}</span>`
         : speaker.connected
           ? "Nothing playing"
-          : `<span class="muted">Last seen ${escapeHtml(formatWhen(speaker.lastSeenAt))}</span>`,
+          : `<span class="muted">${speaker.lastSeenAt ? `Last seen ${escapeHtml(formatWhen(speaker.lastSeenAt))}` : "Never connected"}</span>`,
     ),
     row(
       "Next",
