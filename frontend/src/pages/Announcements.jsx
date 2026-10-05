@@ -29,9 +29,83 @@ function permissions(user) {
   };
 }
 
+const APPROVAL_LABEL = { PENDING: "Pending approval", APPROVED: "Approved", REJECTED: "Rejected" };
+
+const PROGRESS_LABEL = {
+  WAITING_APPROVAL: "Waits for approval",
+  NOT_SENT: "Not sent",
+  PAUSED: "Paused",
+  PENDING: "Pending",
+  DOWNLOADED: "Downloaded",
+  PLAYED: "Played",
+  NOT_PLAYED: "Not played",
+};
+const PROGRESS_ORDER = ["PLAYED", "DOWNLOADED", "PENDING", "NOT_PLAYED", "PAUSED", "WAITING_APPROVAL", "NOT_SENT"];
+
 function statusBadge(item) {
   if (item.status === "APPROVED" && !item.isActive) return <Badge value="inactive">Paused</Badge>;
-  return <Badge value={item.status}>{STATUS_LABEL[item.status]}</Badge>;
+  return <Badge value={item.status}>{APPROVAL_LABEL[item.status] || STATUS_LABEL[item.status]}</Badge>;
+}
+
+function progressBadge(progress) {
+  const state = progress?.state || "PENDING";
+  return <Badge value={`p-${state.toLowerCase()}`}>{PROGRESS_LABEL[state]}</Badge>;
+}
+
+function SpeakerProgress({ item }) {
+  if (!item.deliveries.length) return "—";
+  const counts = {};
+  for (const delivery of item.deliveries) {
+    const state = delivery.progress?.state || "PENDING";
+    counts[state] = (counts[state] || 0) + 1;
+  }
+  const summary = PROGRESS_ORDER.filter((state) => counts[state]).map((state) => `${counts[state]} ${PROGRESS_LABEL[state].toLowerCase()}`);
+  return (
+    <>
+      <ul className="speaker-progress">
+        {item.deliveries.map((delivery) => (
+          <li key={delivery.id} title={delivery.progress?.detail || ""}>
+            <span>{delivery.speaker.name}</span>
+            {item.status === "APPROVED" ? progressBadge(delivery.progress) : null}
+          </li>
+        ))}
+      </ul>
+      {item.status === "APPROVED" && item.deliveries.length > 1 ? <div className="progress-summary">{summary.join(" · ")}</div> : null}
+    </>
+  );
+}
+
+function DeliveryProgress({ item }) {
+  return (
+    <div className="delivery-progress">
+      {item.deliveries.map((delivery) => {
+        const progress = delivery.progress || {};
+        const lines = [];
+        if (progress.receivedAt && item.repeat !== "NOW") lines.push(`Received ${formatWhen(progress.receivedAt)}`);
+        if (progress.downloadedAt) lines.push(`Downloaded ${formatWhen(progress.downloadedAt)}`);
+        if (progress.playCount > 1) lines.push(`Played ${progress.playCount} times`);
+        if (progress.lastPlayedAt) {
+          lines.push(`${progress.lastResult === "COMPLETED" ? "Last played" : "Last attempt"} ${formatWhen(progress.lastPlayedAt)}`);
+        }
+        if (progress.missedAt) lines.push(`Missed ${formatWhen(progress.missedAt)}`);
+        if (progress.nextAt) lines.push(`Next ${formatWhen(progress.nextAt)}`);
+        return (
+          <div key={delivery.id}>
+            <header>
+              <strong>{delivery.speaker.name}</strong>
+              <span>
+                {delivery.speaker.location}
+                {progress.online === false ? " · offline" : ""}
+              </span>
+              {progressBadge(progress)}
+            </header>
+            {lines.length ? <p>{lines.join(" · ")}</p> : null}
+            {progress.detail ? <p className={progress.state === "NOT_PLAYED" ? "is-problem" : ""}>{progress.detail}</p> : null}
+          </div>
+        );
+      })}
+    </div>
+  );
 }
 
 export function Announcements() {
@@ -80,6 +154,10 @@ export function Announcements() {
 
   useEffect(() => {
     load(page);
+    const timer = setInterval(() => {
+      if (document.visibilityState === "visible") load(page);
+    }, 30000);
+    return () => clearInterval(timer);
   }, [debounced, status, plays, areaId, fromDate, toDate, page]);
 
   useEffect(() => {
@@ -121,7 +199,7 @@ export function Announcements() {
         <input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Search announcements" />
         <select value={status} onChange={(event) => setStatus(event.target.value)}>
           <option value="">All statuses</option>
-          <option value="PENDING">Pending review</option>
+          <option value="PENDING">Pending approval</option>
           <option value="APPROVED">Approved</option>
           <option value="PAUSED">Paused</option>
           <option value="REJECTED">Rejected</option>
@@ -194,7 +272,7 @@ export function Announcements() {
                       {describePlan(item)}
                       <div className="muted">{item.repeat === "NOW" ? `Created ${formatWhen(item.createdAt)}` : item.timezone}</div>
                     </td>
-                    <td>{item.deliveries.map((delivery) => delivery.speaker.name).join(", ") || "—"}</td>
+                    <td><SpeakerProgress item={item} /></td>
                     <td>{statusBadge(item)}</td>
                     <td className="row-actions">
                       <button className={`btn small ${can.canReview(item) ? "primary" : "ghost"}`} type="button" onClick={() => setActive(item)}>
@@ -237,7 +315,7 @@ export function Announcements() {
       ) : null}
       {active ? (
         <Review
-          item={active}
+          item={rows.find((row) => row.id === active.id) || active}
           canReview={can.canReview(active)}
           onClose={() => setActive(null)}
           onDone={async () => {
@@ -501,15 +579,7 @@ function Review({ item, canReview, onClose, onDone }) {
         </p>
         {item.notes ? <p>{item.notes}</p> : null}
         <audio controls src={audioUrl(item.audioFile.id)} />
-        <div className="delivery-list">
-          {item.deliveries.map((delivery) => (
-            <div key={delivery.id}>
-              <strong>{delivery.speaker.name}</strong>
-              <span>{delivery.speaker.location}</span>
-              <Badge value={delivery.status}>{STATUS_LABEL[delivery.status]}</Badge>
-            </div>
-          ))}
-        </div>
+        <DeliveryProgress item={item} />
         {item.reviewNote ? <p className="muted">Review note: {item.reviewNote}</p> : null}
         {item.reviewedAt ? <p className="muted">Reviewed {formatWhen(item.reviewedAt)} by {item.reviewedBy?.name || "the system"}</p> : null}
         {canReview ? (

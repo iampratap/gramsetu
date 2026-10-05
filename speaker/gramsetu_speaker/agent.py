@@ -912,6 +912,8 @@ class Agent:
             "nextSchedule": {"scheduleId": upcoming[0]["id"], "title": upcoming[0]["title"], "at": iso(upcoming[1])} if upcoming else None,
             "schedules": len(self.store.schedules()),
             "cachedFiles": len([name for name in os.listdir(self.cache_dir) if name.endswith(".wav")]),
+            # Lets the server mark announcements as downloaded on this speaker.
+            "cachedAudio": sorted(name[: -len(".wav")] for name in os.listdir(self.cache_dir) if name.endswith(".wav"))[:1000],
             "cacheMb": round(sum(entry.stat().st_size for entry in os.scandir(self.cache_dir) if entry.is_file()) / 1048576, 1),
             "pendingReports": self.store.unsynced_count(),
             "pendingLogs": self.store.log_count(),

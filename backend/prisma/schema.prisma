@@ -186,7 +186,9 @@ model AnnouncementDelivery {
   speakerId      String
   speaker        Speaker        @relation(fields: [speakerId], references: [id])
   status         DeliveryStatus @default(HOLD)
+  // First time the speaker received it in a sync, and first time it reported having the audio file.
   sentAt         DateTime?
+  downloadedAt   DateTime?
   ackAt          DateTime?
   createdAt      DateTime       @default(now())
 

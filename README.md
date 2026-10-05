@@ -150,6 +150,23 @@ afterwards. Speakers that are offline or drop out join or rejoin automatically w
 still running. Broadcasts are capped at 60 minutes, are listed in history, and each speaker files a
 play report with source `BROADCAST`.
 
+### Delivery status per speaker
+
+The **Announcements** page shows the approval status (pending approval, approved, rejected) and, once
+approved, a status for every speaker, refreshed every 30 seconds:
+
+- **Pending**: the speaker has not received or finished downloading the audio yet (offline speakers
+  get it when they reconnect).
+- **Downloaded**: the audio is stored on the speaker and waiting for its time. Agents 1.4.0 and newer
+  report their cached files over the device socket; older agents go straight from pending to played.
+- **Played**: the last due play was reported as completed (including plays that happened offline and
+  were reported later).
+- **Not played**: the last play failed or was skipped, or a timed play has no report 15 minutes after
+  it was due.
+
+Open an announcement to see when each speaker downloaded it, when it last played, how many times,
+and when it plays next.
+
 ### Diagnostics (super admin and admin only)
 
 - **Device logs** streams the agent's log lines live (`/ws/logs`) and keeps them in Postgres for

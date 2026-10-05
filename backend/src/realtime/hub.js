@@ -54,6 +54,29 @@ async function broadcastSpeaker(speakerId) {
   broadcast(speaker.areaId, { type: "speaker", speaker: liveView(speaker) });
 }
 
+const DOWNLOAD_RECHECK_MS = 60_000;
+
+/** Speakers list the audio files they hold; deliveries that use one of them count as downloaded. */
+async function markDownloaded(device, cachedAudio) {
+  const ids = [...new Set(cachedAudio.slice(0, 1000).map(String))].sort();
+  const key = ids.join(",");
+  const now = Date.now();
+  // The same file can serve a newly approved announcement, so re-check now and then even if the list is unchanged.
+  if (key === device.cachedKey && now - (device.cachedCheckedAt || 0) < DOWNLOAD_RECHECK_MS) return;
+  device.cachedKey = key;
+  device.cachedCheckedAt = now;
+  if (!ids.length) return;
+  await prisma.announcementDelivery.updateMany({
+    where: {
+      speakerId: device.info.id,
+      downloadedAt: null,
+      status: { in: ["QUEUED", "SENT", "SCHEDULED", "ACKNOWLEDGED"] },
+      announcement: { audioFileId: { in: ids } },
+    },
+    data: { downloadedAt: new Date(now) },
+  });
+}
+
 function remoteIp(req) {
   const forwarded = String(req.headers["x-forwarded-for"] || "").split(",")[0].trim();
   return forwarded || req.headers["x-real-ip"] || req.socket.remoteAddress || null;
@@ -130,8 +153,10 @@ async function handleDeviceMessage(device, message) {
   }
 
   if (message.type === "state" && message.state && typeof message.state === "object") {
+    const { cachedAudio, ...state } = message.state;
+    if (Array.isArray(cachedAudio)) await markDownloaded(device, cachedAudio);
     const previousStatus = device.state?.status;
-    device.state = message.state;
+    device.state = state;
     device.stateAt = new Date();
     const now = Date.now();
     if (now - device.persistedAt > PERSIST_EVERY_MS || previousStatus !== message.state.status) {

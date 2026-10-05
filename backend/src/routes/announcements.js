@@ -15,6 +15,7 @@ import {
 import { deleteAudioObject, s3Bucket } from "../lib/s3.js";
 import { audioUpload, ingestNormalizedAudio, removeUpload } from "../lib/upload.js";
 import { pageMeta, readPage } from "../lib/pagination.js";
+import { attachProgress } from "../lib/progress.js";
 import { requireAuth, wrap } from "../middleware/auth.js";
 import { requestSync } from "../realtime/hub.js";
 
@@ -260,7 +261,7 @@ router.get(
       prisma.announcement.count({ where }),
       prisma.announcement.findMany({ where, include, orderBy: { createdAt: "desc" }, skip, take }),
     ]);
-    res.json({ announcements, meta: pageMeta({ page, pageSize, total }) });
+    res.json({ announcements: await attachProgress(announcements), meta: pageMeta({ page, pageSize, total }) });
   }),
 );
 

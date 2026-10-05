@@ -60,6 +60,35 @@ function runsOn(announcement, iso, weekday) {
   return true;
 }
 
+function playTimesOn(announcement, timeZone, year, month, day) {
+  return (announcement.times || []).map((clock) => {
+    const [hour, minute] = clock.split(":").map(Number);
+    return zonedToUtc(year, month, day, hour, minute, timeZone);
+  });
+}
+
+/** Latest play time (ms since epoch) at or before `before`, or null. */
+export function previousOccurrence(announcement, before = Date.now(), lookbackDays = 9) {
+  if (announcement.repeat === "NOW" || !announcement.startDate) return null;
+  const timeZone = validZone(announcement.timezone);
+  let from = zoneParts(before, timeZone);
+  const last = announcement.repeat === "ONCE" ? announcement.startDate : announcement.endDate;
+  if (last && last < isoDay(from.year, from.month, from.day)) {
+    const [year, month, day] = last.split("-").map(Number);
+    from = { year, month, day };
+  }
+  for (let offset = 0; offset < lookbackDays; offset += 1) {
+    const date = new Date(Date.UTC(from.year, from.month - 1, from.day - offset));
+    const [year, month, day] = [date.getUTCFullYear(), date.getUTCMonth() + 1, date.getUTCDate()];
+    const iso = isoDay(year, month, day);
+    if (iso < announcement.startDate) return null;
+    if (!runsOn(announcement, iso, date.getUTCDay())) continue;
+    const past = playTimesOn(announcement, timeZone, year, month, day).filter((at) => at <= before);
+    if (past.length) return Math.max(...past);
+  }
+  return null;
+}
+
 /** Next play time (ms since epoch) of one ONCE/DAILY/WEEKLY announcement after `now`, or null. */
 export function nextOccurrence(announcement, now = Date.now(), horizonDays = 8) {
   if (announcement.repeat === "NOW") return null;

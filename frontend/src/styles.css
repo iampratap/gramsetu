@@ -845,3 +845,19 @@ body.nav-open { overflow: hidden; }
 .clip-volume { min-width: 44px; text-align: center; font-variant-numeric: tabular-nums; font-size: 0.85rem; font-weight: 500; }
 .speaker-volume { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; font-size: 0.85rem; font-weight: 500; }
 .speaker-volume small { flex-basis: 100%; font-weight: 400; }
+
+.tone-p-waiting_approval, .tone-p-not_sent { background: #eef3fb; color: var(--ink-soft); border-color: var(--line); }
+.tone-p-pending, .tone-p-paused { background: #fff8e1; color: var(--warn); border-color: #f0e0a8; }
+.tone-p-downloaded { background: #e3f0ff; color: var(--accent-hover); border-color: #b6d6fb; }
+.tone-p-played { background: #e8f5e9; color: var(--ok); border-color: #c8e6c9; }
+.tone-p-not_played { background: #fce8ec; color: var(--danger); border-color: #f0c4cc; }
+.speaker-progress { list-style: none; margin: 0; padding: 0; display: grid; gap: 3px; }
+.speaker-progress li { display: flex; gap: 6px; align-items: center; justify-content: space-between; font-size: 0.85rem; }
+.speaker-progress li > span:first-child { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.progress-summary { font-size: 0.75rem; color: var(--ink-soft); margin-top: 2px; }
+.delivery-progress { display: grid; gap: 6px; }
+.delivery-progress > div { border: 1px solid var(--line); border-radius: 4px; padding: 8px 10px; display: grid; gap: 2px; }
+.delivery-progress header { display: flex; justify-content: space-between; align-items: center; gap: 8px; }
+.delivery-progress header span { color: var(--ink-soft); font-size: 0.8rem; margin-right: auto; }
+.delivery-progress p { margin: 0; font-size: 0.8rem; color: var(--ink-soft); }
+.delivery-progress p.is-problem { color: var(--danger); }

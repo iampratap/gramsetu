@@ -51,6 +51,13 @@ router.get(
       orderBy: { createdAt: "asc" },
     });
 
+    if (schedules.length) {
+      await prisma.announcementDelivery.updateMany({
+        where: { speakerId: speaker.id, status: "SCHEDULED", sentAt: null, announcementId: { in: schedules.map((item) => item.id) } },
+        data: { sentAt: new Date() },
+      });
+    }
+
     const deliveries = await prisma.announcementDelivery.findMany({
       where: {
         speakerId: speaker.id,
