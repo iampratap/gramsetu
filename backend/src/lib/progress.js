@@ -1,5 +1,5 @@
 import { prisma } from "../db.js";
-import { isDeviceConnected } from "../realtime/registry.js";
+import { devices, isDeviceConnected } from "../realtime/registry.js";
 import { nextOccurrence, previousOccurrence } from "./schedule.js";
 
 // A timed play counts as missed once this long has passed without a report (the speaker allows 10 minutes late).
@@ -9,7 +9,7 @@ const iso = (ms) => (ms === null || ms === undefined ? null : new Date(ms).toISO
 
 /**
  * Per-speaker progress of each announcement:
- * WAITING_APPROVAL, NOT_SENT (rejected), PAUSED, PENDING, DOWNLOADED, PLAYED or NOT_PLAYED.
+ * WAITING_APPROVAL, NOT_SENT (rejected), PAUSED, PENDING, DOWNLOADING, DOWNLOADED, PLAYED or NOT_PLAYED.
  */
 export async function attachProgress(announcements, now = Date.now()) {
   const timedIds = announcements.filter((item) => item.repeat !== "NOW").map((item) => item.id);
@@ -51,6 +51,27 @@ export async function attachProgress(announcements, now = Date.now()) {
   }));
 }
 
+/** What a not-yet-downloaded delivery is doing: downloading right now (with progress) or still pending. */
+function waiting(announcement, delivery, online, fields) {
+  const download = online ? devices.get(delivery.speakerId)?.state?.downloads?.find((item) => item.audioId === announcement.audioFileId) : null;
+  if (download) {
+    return {
+      ...fields,
+      state: "DOWNLOADING",
+      downloadPercent: download.percent ?? null,
+      downloadedBytes: download.receivedBytes ?? null,
+      totalBytes: download.totalBytes ?? null,
+      detail: "Downloading on the speaker",
+    };
+  }
+  const detail = online
+    ? "Waiting to download on the speaker"
+    : delivery.sentAt
+      ? "Received; download finishes when the speaker is back online"
+      : "Speaker is offline; it gets this when it reconnects";
+  return { ...fields, state: "PENDING", detail };
+}
+
 function progressFor(announcement, delivery, log, playCount, now) {
   const online = isDeviceConnected(delivery.speakerId);
   const base = {
@@ -73,15 +94,6 @@ function progressFor(announcement, delivery, log, playCount, now) {
         playedOffline: log.playedOffline,
       }
     : {};
-  const waitingDetail = (downloaded) =>
-    downloaded
-      ? null
-      : online
-        ? "Downloading on the speaker"
-        : delivery.sentAt
-          ? "Received; download finishes when the speaker is back online"
-          : "Speaker is offline; it gets this when it reconnects";
-
   if (announcement.repeat === "NOW") {
     if (log) {
       const played = log.result === "COMPLETED";
@@ -93,8 +105,8 @@ function progressFor(announcement, delivery, log, playCount, now) {
         detail: played ? (log.playedOffline ? "Played while offline" : null) : notPlayedReason(log),
       };
     }
-    const downloaded = Boolean(delivery.downloadedAt);
-    return { ...base, state: downloaded ? "DOWNLOADED" : "PENDING", detail: downloaded ? "Waiting for its turn to play" : waitingDetail(false) };
+    if (!delivery.downloadedAt) return waiting(announcement, delivery, online, base);
+    return { ...base, state: "DOWNLOADED", detail: "Waiting for its turn to play" };
   }
 
   const nextAt = announcement.isActive ? nextOccurrence(announcement, now) : null;
@@ -120,12 +132,8 @@ function progressFor(announcement, delivery, log, playCount, now) {
       detail: played ? (log.playedOffline ? "Last play happened while offline" : null) : notPlayedReason(log),
     };
   }
-  const downloaded = Boolean(delivery.downloadedAt);
-  return {
-    ...withNext,
-    state: downloaded ? "DOWNLOADED" : "PENDING",
-    detail: downloaded ? (nextAt ? "Stored on the speaker, waiting for its time" : "Stored on the speaker") : waitingDetail(false),
-  };
+  if (!delivery.downloadedAt) return waiting(announcement, delivery, online, withNext);
+  return { ...withNext, state: "DOWNLOADED", detail: nextAt ? "Stored on the speaker, waiting for its time" : "Stored on the speaker" };
 }
 
 function notPlayedReason(log) {

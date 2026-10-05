@@ -131,6 +131,9 @@ class Agent:
         self.lock = asyncio.Lock()
         self.sync_lock = asyncio.Lock()
         self.download_locks: dict[str, asyncio.Lock] = {}
+        # audio id -> [bytes received, total bytes or None], while a file downloads.
+        self.downloads: dict[str, list] = {}
+        self.download_pushed = 0.0
         self.sync_now = asyncio.Event()
         self.flush_now = asyncio.Event()
         self.state_now = asyncio.Event()
@@ -707,13 +710,20 @@ class Agent:
             target = os.path.join(self.cache_dir, f"{audio['id']}.wav")
             partial = target + ".part"
             url = self.config.url(audio.get("url") or f"/api/device/audio/{audio['id']}")
+            progress = self.downloads[audio["id"]] = [0, audio.get("sizeBytes")]
+            self.state_now.set()
             try:
                 async with self.session.get(url) as response:
                     if response.status != 200:
                         raise RuntimeError(f"HTTP {response.status}")
+                    progress[1] = progress[1] or response.content_length
                     with open(partial, "wb") as handle:
                         async for chunk in response.content.iter_chunked(64 * 1024):
                             handle.write(chunk)
+                            progress[0] += len(chunk)
+                            if time.monotonic() - self.download_pushed >= 1:
+                                self.download_pushed = time.monotonic()
+                                self.state_now.set()
                 size = audio.get("sizeBytes")
                 if size and os.path.getsize(partial) != size:
                     raise RuntimeError("downloaded size does not match")
@@ -725,6 +735,9 @@ class Agent:
                 if os.path.exists(partial):
                     os.unlink(partial)
                 return None
+            finally:
+                self.downloads.pop(audio["id"], None)
+                self.state_now.set()
 
     def _needed_audio(self, now) -> dict[str, dict]:
         """Files that must stay on the speaker: schedules with plays ahead (or that ended less than
@@ -914,6 +927,15 @@ class Agent:
             "cachedFiles": len([name for name in os.listdir(self.cache_dir) if name.endswith(".wav")]),
             # Lets the server mark announcements as downloaded on this speaker.
             "cachedAudio": sorted(name[: -len(".wav")] for name in os.listdir(self.cache_dir) if name.endswith(".wav"))[:1000],
+            "downloads": [
+                {
+                    "audioId": audio_id,
+                    "receivedBytes": received,
+                    "totalBytes": total,
+                    "percent": min(99, int(received * 100 / total)) if total else None,
+                }
+                for audio_id, (received, total) in self.downloads.items()
+            ],
             "cacheMb": round(sum(entry.stat().st_size for entry in os.scandir(self.cache_dir) if entry.is_file()) / 1048576, 1),
             "pendingReports": self.store.unsynced_count(),
             "pendingLogs": self.store.log_count(),

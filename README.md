@@ -155,8 +155,9 @@ play report with source `BROADCAST`.
 The **Announcements** page shows the approval status (pending approval, approved, rejected) and, once
 approved, a status for every speaker, refreshed every 30 seconds:
 
-- **Pending**: the speaker has not received or finished downloading the audio yet (offline speakers
+- **Pending**: the speaker has not received or started downloading the audio yet (offline speakers
   get it when they reconnect).
+- **Downloading**: the speaker is fetching the file right now, with a live percentage (agent 1.5.0+).
 - **Downloaded**: the audio is stored on the speaker and waiting for its time. Agents 1.4.0 and newer
   report their cached files over the device socket; older agents go straight from pending to played.
 - **Played**: the last due play was reported as completed (including plays that happened offline and
@@ -165,7 +166,8 @@ approved, a status for every speaker, refreshed every 30 seconds:
   it was due.
 
 Open an announcement to see when each speaker downloaded it, when it last played, how many times,
-and when it plays next.
+and a live countdown to its next play. Each card on the **Speakers** page lists that speaker's next
+plays with countdowns, plus anything waiting to play right away, and shows download progress.
 
 ### Diagnostics (super admin and admin only)
 

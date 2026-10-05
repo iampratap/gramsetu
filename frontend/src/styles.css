@@ -861,3 +861,19 @@ body.nav-open { overflow: hidden; }
 .delivery-progress header span { color: var(--ink-soft); font-size: 0.8rem; margin-right: auto; }
 .delivery-progress p { margin: 0; font-size: 0.8rem; color: var(--ink-soft); }
 .delivery-progress p.is-problem { color: var(--danger); }
+.tone-p-downloading { background: #f0ebff; color: #5b3cc4; border-color: #d6cbf7; }
+.download-progress { margin: 4px 0 0; }
+.download-progress span { background: #6f4fd8; }
+.countdown { font-variant-numeric: tabular-nums; font-weight: 600; }
+.countdown.is-soon { color: var(--warn); }
+.countdown.is-due { color: var(--ok); }
+.next-play { font-size: 0.78rem; color: var(--ink-soft); margin-top: 4px; white-space: nowrap; }
+.speaker-downloads { display: grid; gap: 6px; }
+.speaker-download-head { display: flex; justify-content: space-between; font-size: 0.8rem; color: #5b3cc4; gap: 8px; }
+.upcoming-plays { border-top: 1px solid var(--line); padding-top: 8px; }
+.upcoming-head { display: flex; justify-content: space-between; font-size: 0.8rem; font-weight: 600; margin-bottom: 4px; }
+.upcoming-plays p { margin: 0; font-size: 0.8rem; }
+.upcoming-plays ul { list-style: none; margin: 0; padding: 0; display: grid; gap: 3px; }
+.upcoming-plays li { display: grid; grid-template-columns: minmax(0, 1fr) auto auto; gap: 8px; align-items: baseline; font-size: 0.8rem; }
+.upcoming-title { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.speaker-progress .badge { white-space: nowrap; }

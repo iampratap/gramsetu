@@ -108,3 +108,18 @@ export function nextOccurrence(announcement, now = Date.now(), horizonDays = 8) 
   }
   return null;
 }
+
+/** The next `limit` play times (ms since epoch) after `now`, in order. */
+export function upcomingOccurrences(announcement, now = Date.now(), limit = 5, horizonDays = 8) {
+  if (announcement.repeat === "NOW") return [];
+  const timeZone = validZone(announcement.timezone);
+  const today = zoneParts(now, timeZone);
+  const found = [];
+  for (let offset = 0; offset < horizonDays && found.length < limit; offset += 1) {
+    const date = new Date(Date.UTC(today.year, today.month - 1, today.day + offset));
+    const [year, month, day] = [date.getUTCFullYear(), date.getUTCMonth() + 1, date.getUTCDate()];
+    if (!runsOn(announcement, isoDay(year, month, day), date.getUTCDay())) continue;
+    found.push(...playTimesOn(announcement, timeZone, year, month, day).filter((at) => at > now).sort((a, b) => a - b));
+  }
+  return found.slice(0, limit);
+}

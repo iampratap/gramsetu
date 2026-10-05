@@ -1,4 +1,5 @@
-import { useEffect } from "react";
+import { useEffect, useState } from "react";
+import { formatCountdown } from "../format.js";
 
 export function PageHead({ eyebrow, title, lede, children }) {
   return (
@@ -122,5 +123,23 @@ export function Pagination({ meta, onPageChange }) {
         </button>
       </div>
     </div>
+  );
+}
+
+/** Live "in 01:23:45" countdown to `at`; shows `due` once the time has passed. */
+export function Countdown({ at, due = "due now", prefix = "in " }) {
+  const target = at ? new Date(at).getTime() : null;
+  const [now, setNow] = useState(Date.now());
+  useEffect(() => {
+    if (target === null) return undefined;
+    const timer = setInterval(() => setNow(Date.now()), 1000);
+    return () => clearInterval(timer);
+  }, [target]);
+  if (target === null) return null;
+  const left = target - now;
+  return (
+    <span className={`countdown${left <= 0 ? " is-due" : left < 3600_000 ? " is-soon" : ""}`} title={new Date(target).toLocaleString()}>
+      {left <= 0 ? due : `${prefix}${formatCountdown(left)}`}
+    </span>
   );
 }

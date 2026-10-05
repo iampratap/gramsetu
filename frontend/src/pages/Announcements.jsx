@@ -1,8 +1,8 @@
 import { useEffect, useState } from "react";
 import { api, audioUrl } from "../api.js";
 import { useAuth } from "../auth.jsx";
-import { Badge, Banner, Empty, Field, Modal, PageHead, Pagination } from "../components/ui.jsx";
-import { STATUS_LABEL, WEEKDAYS, describePlan, formatWhen, useDebounced } from "../format.js";
+import { Badge, Banner, Countdown, Empty, Field, Modal, PageHead, Pagination } from "../components/ui.jsx";
+import { STATUS_LABEL, WEEKDAYS, describePlan, formatBytes, formatWhen, useDebounced } from "../format.js";
 
 const PAGE_SIZE = 10;
 const PLAN_OPTIONS = [
@@ -36,11 +36,12 @@ const PROGRESS_LABEL = {
   NOT_SENT: "Not sent",
   PAUSED: "Paused",
   PENDING: "Pending",
+  DOWNLOADING: "Downloading",
   DOWNLOADED: "Downloaded",
   PLAYED: "Played",
   NOT_PLAYED: "Not played",
 };
-const PROGRESS_ORDER = ["PLAYED", "DOWNLOADED", "PENDING", "NOT_PLAYED", "PAUSED", "WAITING_APPROVAL", "NOT_SENT"];
+const PROGRESS_ORDER = ["PLAYED", "DOWNLOADED", "DOWNLOADING", "PENDING", "NOT_PLAYED", "PAUSED", "WAITING_APPROVAL", "NOT_SENT"];
 
 function statusBadge(item) {
   if (item.status === "APPROVED" && !item.isActive) return <Badge value="inactive">Paused</Badge>;
@@ -49,7 +50,14 @@ function statusBadge(item) {
 
 function progressBadge(progress) {
   const state = progress?.state || "PENDING";
-  return <Badge value={`p-${state.toLowerCase()}`}>{PROGRESS_LABEL[state]}</Badge>;
+  const percent = state === "DOWNLOADING" && progress.downloadPercent !== null && progress.downloadPercent !== undefined ? ` ${progress.downloadPercent}%` : "";
+  return <Badge value={`p-${state.toLowerCase()}`}>{PROGRESS_LABEL[state]}{percent}</Badge>;
+}
+
+/** Earliest upcoming play across the announcement's speakers. */
+function nextPlay(item) {
+  const times = item.deliveries.map((delivery) => delivery.progress?.nextAt).filter(Boolean).sort();
+  return times[0] || null;
 }
 
 function SpeakerProgress({ item }) {
@@ -88,7 +96,6 @@ function DeliveryProgress({ item }) {
           lines.push(`${progress.lastResult === "COMPLETED" ? "Last played" : "Last attempt"} ${formatWhen(progress.lastPlayedAt)}`);
         }
         if (progress.missedAt) lines.push(`Missed ${formatWhen(progress.missedAt)}`);
-        if (progress.nextAt) lines.push(`Next ${formatWhen(progress.nextAt)}`);
         return (
           <div key={delivery.id}>
             <header>
@@ -99,7 +106,23 @@ function DeliveryProgress({ item }) {
               </span>
               {progressBadge(progress)}
             </header>
+            {progress.state === "DOWNLOADING" ? (
+              <>
+                <div className="progress download-progress">
+                  <span style={{ width: `${progress.downloadPercent ?? 0}%` }} />
+                </div>
+                <p>
+                  {formatBytes(progress.downloadedBytes)}
+                  {progress.totalBytes ? ` of ${formatBytes(progress.totalBytes)}` : ""}
+                </p>
+              </>
+            ) : null}
             {lines.length ? <p>{lines.join(" · ")}</p> : null}
+            {progress.nextAt ? (
+              <p>
+                Next {formatWhen(progress.nextAt)} · <Countdown at={progress.nextAt} />
+              </p>
+            ) : null}
             {progress.detail ? <p className={progress.state === "NOT_PLAYED" ? "is-problem" : ""}>{progress.detail}</p> : null}
           </div>
         );
@@ -152,13 +175,19 @@ export function Announcements() {
     setPage(1);
   }, [debounced, status, plays, areaId, fromDate, toDate]);
 
+  const downloading = rows.some((row) => row.deliveries.some((delivery) => delivery.progress?.state === "DOWNLOADING"));
+
   useEffect(() => {
     load(page);
+  }, [debounced, status, plays, areaId, fromDate, toDate, page]);
+
+  useEffect(() => {
+    // Quick refresh while a speaker is downloading so the percentage moves.
     const timer = setInterval(() => {
       if (document.visibilityState === "visible") load(page);
-    }, 30000);
+    }, downloading ? 2000 : 30000);
     return () => clearInterval(timer);
-  }, [debounced, status, plays, areaId, fromDate, toDate, page]);
+  }, [debounced, status, plays, areaId, fromDate, toDate, page, downloading]);
 
   useEffect(() => {
     if (can.global) api("/api/areas").then((data) => setAreas(data.areas.filter((area) => area.isActive))).catch(() => {});
@@ -273,7 +302,14 @@ export function Announcements() {
                       <div className="muted">{item.repeat === "NOW" ? `Created ${formatWhen(item.createdAt)}` : item.timezone}</div>
                     </td>
                     <td><SpeakerProgress item={item} /></td>
-                    <td>{statusBadge(item)}</td>
+                    <td>
+                      {statusBadge(item)}
+                      {item.status === "APPROVED" && item.isActive && nextPlay(item) ? (
+                        <div className="next-play">
+                          Next play <Countdown at={nextPlay(item)} />
+                        </div>
+                      ) : null}
+                    </td>
                     <td className="row-actions">
                       <button className={`btn small ${can.canReview(item) ? "primary" : "ghost"}`} type="button" onClick={() => setActive(item)}>
                         {can.canReview(item) ? "Review" : "Open"}

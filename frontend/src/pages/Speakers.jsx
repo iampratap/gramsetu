@@ -3,8 +3,8 @@ import { Link, useSearchParams } from "react-router-dom";
 import { api } from "../api.js";
 import { useAuth } from "../auth.jsx";
 import { LocationPicker } from "../components/LocationPicker.jsx";
-import { Badge, Banner, Empty, Field, Modal, PageHead } from "../components/ui.jsx";
-import { STATUS_LABEL, formatClock, formatWhen } from "../format.js";
+import { Badge, Banner, Countdown, Empty, Field, Modal, PageHead } from "../components/ui.jsx";
+import { STATUS_LABEL, formatBytes, formatClock, formatWhen } from "../format.js";
 import { useLiveSpeakers, useTicker } from "../live.js";
 import { parseCoordinate } from "../map.js";
 
@@ -40,7 +40,22 @@ export function Speakers() {
   const [status, setStatus] = useState("");
   const [error, setError] = useState("");
   const [form, setForm] = useState(null);
+  const [upcoming, setUpcoming] = useState({});
   const now = useTicker(1000);
+
+  useEffect(() => {
+    let stopped = false;
+    const refresh = () =>
+      api("/api/speakers/upcoming")
+        .then((data) => !stopped && setUpcoming(data.upcoming))
+        .catch(() => {});
+    refresh();
+    const timer = setInterval(refresh, 60000);
+    return () => {
+      stopped = true;
+      clearInterval(timer);
+    };
+  }, []);
 
   useEffect(() => {
     api("/api/audio?page=1&pageSize=100")
@@ -125,6 +140,7 @@ export function Speakers() {
               speaker={speaker}
               global={global}
               audio={audio.filter((file) => file.areaId === speaker.areaId)}
+              upcoming={upcoming[speaker.id]}
               now={now}
               onEdit={() => openEditor(speaker)}
             />
@@ -160,7 +176,7 @@ export function Speakers() {
   );
 }
 
-function SpeakerCard({ speaker, global, audio, now, onEdit }) {
+function SpeakerCard({ speaker, global, audio, upcoming, now, onEdit }) {
   const state = speaker.state || {};
   const online = speaker.connected;
   const playing = state.status === "playing";
@@ -227,14 +243,26 @@ function SpeakerCard({ speaker, global, audio, now, onEdit }) {
       <dl className="speaker-facts">
         <div><dt>Volume</dt><dd>{state.volume ?? "—"}{state.volume !== undefined ? "%" : ""}</dd></div>
         <div><dt>Queue</dt><dd>{state.queueLength ?? 0}</dd></div>
-        <div>
-          <dt>Next</dt>
-          <dd>{state.nextSchedule ? `${state.nextSchedule.title} · ${formatWhen(state.nextSchedule.at)}` : "—"}</dd>
-        </div>
         <div><dt>Unsynced reports</dt><dd>{state.pendingReports ?? 0}</dd></div>
         <div><dt>{online ? "Last sync" : "Last seen"}</dt><dd>{formatWhen(online ? state.lastSyncAt : speaker.lastSeenAt)}</dd></div>
         <div><dt>Device</dt><dd>{speaker.deviceId}{speaker.agentVersion ? ` · v${speaker.agentVersion}` : ""}</dd></div>
       </dl>
+
+      {online && state.downloads?.length ? (
+        <div className="speaker-downloads">
+          {state.downloads.map((download) => (
+            <div key={download.audioId}>
+              <div className="speaker-download-head">
+                <span>Downloading {audio.find((file) => file.id === download.audioId)?.title || "audio"}</span>
+                <span>{download.percent !== null && download.percent !== undefined ? `${download.percent}%` : formatBytes(download.receivedBytes)}</span>
+              </div>
+              <div className="progress download-progress"><span style={{ width: `${download.percent ?? 0}%` }} /></div>
+            </div>
+          ))}
+        </div>
+      ) : null}
+
+      <UpcomingPlays upcoming={upcoming} fallback={state.nextSchedule} now={now} />
 
       {skew !== null && skew !== undefined && Math.abs(skew) > 60 ? (
         <div className="banner">Clock is off by {Math.round(skew)} s. Timed announcements use the speaker clock.</div>
@@ -287,6 +315,39 @@ function SpeakerCard({ speaker, global, audio, now, onEdit }) {
         </div>
       ) : null}
     </article>
+  );
+}
+
+function UpcomingPlays({ upcoming, fallback, now }) {
+  const plays = (upcoming?.plays || []).filter((play) => new Date(play.at).getTime() > now - 60_000);
+  if (!plays.length && fallback && new Date(fallback.at).getTime() > now) {
+    plays.push({ announcementId: fallback.scheduleId, title: fallback.title, at: fallback.at });
+  }
+  const queued = upcoming?.queued || [];
+  return (
+    <div className="upcoming-plays">
+      <div className="upcoming-head">
+        <span>Upcoming</span>
+        {upcoming?.next24h ? <span className="muted">{upcoming.next24h} in the next 24 h</span> : null}
+      </div>
+      {!plays.length && !queued.length ? <p className="muted">Nothing scheduled</p> : null}
+      <ul>
+        {queued.map((item) => (
+          <li key={`q-${item.announcementId}`}>
+            <span className="upcoming-title">{item.title}</span>
+            <span className="muted">plays as soon as possible</span>
+            <span className="countdown is-due">waiting</span>
+          </li>
+        ))}
+        {plays.map((play) => (
+          <li key={`${play.announcementId}-${play.at}`}>
+            <span className="upcoming-title">{play.title}</span>
+            <span className="muted">{formatWhen(play.at)}</span>
+            <Countdown at={play.at} due="playing now" />
+          </li>
+        ))}
+      </ul>
+    </div>
   );
 }
 

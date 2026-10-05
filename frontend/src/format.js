@@ -88,3 +88,14 @@ export function useDebounced(value, delay = 250) {
   }, [value, delay]);
   return debounced;
 }
+
+/** "2d 03:04:05", "03:04:05" or "04:05" until a moment that is `ms` away. */
+export function formatCountdown(ms) {
+  const total = Math.max(0, Math.floor(ms / 1000));
+  const days = Math.floor(total / 86400);
+  const hours = Math.floor((total % 86400) / 3600);
+  const minutes = Math.floor((total % 3600) / 60);
+  const pad = (value) => String(value).padStart(2, "0");
+  const clock = `${hours || days ? `${pad(hours)}:` : ""}${pad(minutes)}:${pad(total % 60)}`;
+  return days ? `${days}d ${clock}` : clock;
+}

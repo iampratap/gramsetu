@@ -63,7 +63,7 @@ function popupHtml(speaker, info, next, now) {
         : '<span class="muted">Nothing scheduled in the next 8 days</span>',
     ),
   ];
-  if (info?.next24h) rows.push(row("Next 24 h", `${info.next24h} timed announcement(s)`));
+  if (info?.next24h) rows.push(row("Next 24 h", `${info.next24h} play${info.next24h === 1 ? "" : "s"}`));
   if (info?.waiting) {
     rows.push(row("Waiting", `${info.waiting} approved announcement(s) ${speaker.connected ? "being delivered" : "play when it reconnects"}`));
   }

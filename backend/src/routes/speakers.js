@@ -11,11 +11,13 @@ import {
   parse,
   presentSpeaker,
 } from "../lib/http.js";
-import { nextOccurrence } from "../lib/schedule.js";
+import { upcomingOccurrences } from "../lib/schedule.js";
 import { requireAuth, wrap } from "../middleware/auth.js";
 import { disconnectDevice, liveView, sendCommand, speakerChanged } from "../realtime/hub.js";
 
 const router = Router();
+
+const PLAYS_PER_SPEAKER = 5;
 router.use(requireAuth);
 
 const speakerSchema = z.object({
@@ -104,33 +106,41 @@ router.get(
           deliveries: { where: { status: "SCHEDULED", speaker: speakerWhere }, select: { speakerId: true } },
         },
       }),
-      prisma.announcementDelivery.groupBy({
-        by: ["speakerId"],
+      prisma.announcementDelivery.findMany({
         where: {
           status: { in: ["QUEUED", "SENT"] },
           speaker: speakerWhere,
           announcement: { status: "APPROVED", repeat: "NOW", isActive: true },
         },
-        _count: { _all: true },
+        select: { speakerId: true, announcement: { select: { id: true, title: true } } },
+        orderBy: { createdAt: "asc" },
       }),
     ]);
 
     const now = Date.now();
     const upcoming = {};
-    const entry = (speakerId) => (upcoming[speakerId] ||= { next: null, next24h: 0, waiting: 0 });
+    const entry = (speakerId) => (upcoming[speakerId] ||= { next: null, next24h: 0, waiting: 0, plays: [], queued: [] });
     const endOfDay = now + 24 * 3600_000;
     for (const announcement of timed) {
-      const at = nextOccurrence(announcement, now);
-      if (at === null) continue;
+      const times = upcomingOccurrences(announcement, now, PLAYS_PER_SPEAKER);
+      if (!times.length) continue;
+      const today = upcomingOccurrences(announcement, now, 48, 2).filter((at) => at <= endOfDay).length;
+      const plays = times.map((at) => ({ announcementId: announcement.id, title: announcement.title, repeat: announcement.repeat, at: new Date(at).toISOString() }));
       for (const { speakerId } of announcement.deliveries) {
         const item = entry(speakerId);
-        if (at <= endOfDay) item.next24h += 1;
-        if (!item.next || at < new Date(item.next.at).getTime()) {
-          item.next = { announcementId: announcement.id, title: announcement.title, repeat: announcement.repeat, at: new Date(at).toISOString() };
-        }
+        item.next24h += today;
+        item.plays.push(...plays);
       }
     }
-    for (const row of waiting) entry(row.speakerId).waiting = row._count._all;
+    for (const item of Object.values(upcoming)) {
+      item.plays = item.plays.sort((a, b) => a.at.localeCompare(b.at)).slice(0, PLAYS_PER_SPEAKER);
+      item.next = item.plays[0] || null;
+    }
+    for (const row of waiting) {
+      const item = entry(row.speakerId);
+      item.waiting += 1;
+      item.queued.push({ announcementId: row.announcement.id, title: row.announcement.title });
+    }
     res.json({ upcoming, serverTime: new Date(now).toISOString() });
   }),
 );
