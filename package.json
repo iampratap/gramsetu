@@ -1,0 +1,12 @@
+{
+  "name": "gramsetu",
+  "private": true,
+  "scripts": {
+    "dev": "concurrently -n api,web -c green,blue \"npm run dev --prefix backend\" \"npm run dev --prefix frontend\"",
+    "db:up": "docker compose up -d",
+    "db:setup": "npm run db:setup --prefix backend"
+  },
+  "devDependencies": {
+    "concurrently": "^9.2.1"
+  }
+}

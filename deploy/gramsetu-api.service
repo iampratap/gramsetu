@@ -1,0 +1,24 @@
+# Deprecated: the API now runs via docker compose (`gramsetu-api` container).
+# Kept only as a reference. Do not enable this unit.
+#
+#   sudo docker compose up -d --build api
+#
+# Former unit content:
+#
+# [Unit]
+# Description=GramSetu Announcement API
+# After=network.target docker.service
+# Wants=docker.service
+#
+# [Service]
+# Type=simple
+# User=developer
+# Group=developer
+# WorkingDirectory=/home/developer/app/backend
+# EnvironmentFile=/home/developer/app/backend/.env
+# ExecStart=/usr/bin/node src/index.js
+# Restart=on-failure
+# RestartSec=5
+#
+# [Install]
+# WantedBy=multi-user.target

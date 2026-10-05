@@ -1,0 +1,262 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum Role {
+  SUPERADMIN
+  ADMIN
+  MAKER
+  CHECKER
+}
+
+enum SpeakerStatus {
+  ONLINE
+  OFFLINE
+  MAINTENANCE
+}
+
+enum AnnouncementStatus {
+  PENDING
+  APPROVED
+  REJECTED
+}
+
+enum DeliveryStatus {
+  HOLD
+  QUEUED
+  // Approved repeating/timed announcement; the speaker plays it from its own schedule.
+  SCHEDULED
+  SENT
+  ACKNOWLEDGED
+  FAILED
+  CANCELLED
+}
+
+enum ScheduleRepeat {
+  // Play as soon as the announcement is approved.
+  NOW
+  ONCE
+  DAILY
+  WEEKLY
+}
+
+enum PlaySource {
+  SCHEDULE
+  ANNOUNCEMENT
+  LIVE_TEST
+  BROADCAST
+}
+
+enum PlayResult {
+  COMPLETED
+  SKIPPED
+  STOPPED
+  FAILED
+}
+
+model User {
+  id           String   @id @default(cuid())
+  name         String
+  email        String   @unique
+  passwordHash String
+  role         Role
+  areaId       String?
+  area         Area?    @relation(fields: [areaId], references: [id])
+  isActive     Boolean  @default(true)
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  uploadedAudio         AudioFile[]
+  createdAnnouncements  Announcement[] @relation("CreatedBy")
+  reviewedAnnouncements Announcement[] @relation("ReviewedBy")
+  broadcasts            Broadcast[]
+}
+
+model Area {
+  id          String   @id @default(cuid())
+  name        String
+  code        String   @unique
+  district    String
+  state       String
+  description String?
+  isActive    Boolean  @default(true)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  users         User[]
+  speakers      Speaker[]
+  audioFiles    AudioFile[]
+  announcements Announcement[]
+}
+
+model Speaker {
+  id           String        @id @default(cuid())
+  areaId       String
+  area         Area          @relation(fields: [areaId], references: [id])
+  name         String
+  location     String
+  deviceId     String        @unique
+  deviceKey    String
+  status       SpeakerStatus @default(OFFLINE)
+  isActive     Boolean       @default(true)
+  lastSeenAt   DateTime?
+  notes        String?
+  liveState    Json?
+  liveStateAt  DateTime?
+  agentVersion String?
+  ipAddress    String?
+  createdAt    DateTime      @default(now())
+  updatedAt    DateTime      @updatedAt
+
+  deliveries AnnouncementDelivery[]
+  playLogs   PlayLog[]
+  deviceLogs DeviceLog[]
+
+  @@index([areaId])
+}
+
+model AudioFile {
+  id           String   @id @default(cuid())
+  areaId       String
+  area         Area     @relation(fields: [areaId], references: [id])
+  title        String
+  description  String?
+  originalName String
+  s3Key        String
+  s3Bucket     String
+  mimeType     String   @default("audio/wav")
+  sizeBytes    Int
+  sampleRate   Int      @default(16000)
+  bitDepth     Int      @default(16)
+  channels     Int      @default(1)
+  uploadedById String
+  uploadedBy   User     @relation(fields: [uploadedById], references: [id])
+  createdAt    DateTime @default(now())
+
+  announcements Announcement[]
+
+  @@index([areaId])
+  @@index([s3Key])
+}
+
+model Announcement {
+  id           String             @id @default(cuid())
+  areaId       String
+  area         Area               @relation(fields: [areaId], references: [id])
+  audioFileId  String
+  audioFile    AudioFile          @relation(fields: [audioFileId], references: [id])
+  title        String
+  notes        String?
+  status       AnnouncementStatus @default(PENDING)
+  repeat       ScheduleRepeat     @default(NOW)
+  // Unused for NOW. Dates are YYYY-MM-DD and times HH:MM, both in `timezone`.
+  startDate    String?
+  endDate      String?
+  times        String[]           @default([])
+  // 0 = Sunday … 6 = Saturday; only used for WEEKLY.
+  daysOfWeek   Int[]              @default([])
+  timezone     String             @default("Asia/Kolkata")
+  // Paused announcements stay approved but speakers stop playing them.
+  isActive     Boolean            @default(true)
+  createdById  String
+  createdBy    User               @relation("CreatedBy", fields: [createdById], references: [id])
+  reviewedById String?
+  reviewedBy   User?              @relation("ReviewedBy", fields: [reviewedById], references: [id])
+  reviewNote   String?
+  reviewedAt   DateTime?
+  createdAt    DateTime           @default(now())
+  updatedAt    DateTime           @updatedAt
+
+  deliveries AnnouncementDelivery[]
+
+  @@index([areaId, status])
+}
+
+model AnnouncementDelivery {
+  id             String         @id @default(cuid())
+  announcementId String
+  announcement   Announcement   @relation(fields: [announcementId], references: [id], onDelete: Cascade)
+  speakerId      String
+  speaker        Speaker        @relation(fields: [speakerId], references: [id])
+  status         DeliveryStatus @default(HOLD)
+  sentAt         DateTime?
+  ackAt          DateTime?
+  createdAt      DateTime       @default(now())
+
+  @@unique([announcementId, speakerId])
+  @@index([speakerId, status])
+}
+
+model PlayLog {
+  id            String     @id @default(cuid())
+  speakerId     String
+  speaker       Speaker    @relation(fields: [speakerId], references: [id], onDelete: Cascade)
+  // Generated on the speaker so offline reports can be re-sent safely.
+  localId       String
+  source        PlaySource
+  result        PlayResult
+  title         String
+  // The announcement id for timed/repeating plays (speakers call these schedules).
+  scheduleId    String?
+  deliveryId    String?
+  broadcastId   String?
+  audioFileId   String?
+  scheduledFor  DateTime?
+  startedAt     DateTime?
+  endedAt       DateTime?
+  durationMs    Int?
+  error         String?
+  playedOffline Boolean    @default(false)
+  receivedAt    DateTime   @default(now())
+
+  @@unique([speakerId, localId])
+  @@index([speakerId, startedAt])
+  @@index([startedAt])
+}
+
+model Broadcast {
+  id          String    @id @default(cuid())
+  title       String
+  createdById String
+  createdBy   User      @relation(fields: [createdById], references: [id])
+  // Areas of the chosen speakers, so area users only see broadcasts that reached their area.
+  areaIds     String[]
+  speakerIds  String[]
+  // { [speakerId]: { name, status, error } } as it stood when the broadcast ended.
+  results     Json?
+  startedAt   DateTime  @default(now())
+  endedAt     DateTime?
+  durationMs  Int?
+
+  @@index([startedAt])
+}
+
+enum LogLevel {
+  DEBUG
+  INFO
+  WARNING
+  ERROR
+  CRITICAL
+}
+
+model DeviceLog {
+  id         String   @id @default(cuid())
+  speakerId  String
+  speaker    Speaker  @relation(fields: [speakerId], references: [id], onDelete: Cascade)
+  // Generated on the speaker so lines buffered while offline can be re-sent safely.
+  localId    String
+  level      LogLevel
+  logger     String
+  message    String
+  loggedAt   DateTime
+  receivedAt DateTime @default(now())
+
+  @@unique([speakerId, localId])
+  @@index([speakerId, loggedAt])
+  @@index([loggedAt])
+}

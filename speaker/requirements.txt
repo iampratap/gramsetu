@@ -1,0 +1,2 @@
+# setup.sh installs this from apt (python3-aiohttp); listed here for local development.
+aiohttp>=3.8

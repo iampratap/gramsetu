@@ -1,0 +1,12 @@
+{
+  "server_url": "https://app.mahagramvani.in",
+  "device_id": "spk-rampur-school",
+  "device_key": "paste-the-device-key-from-the-speakers-page",
+  "data_dir": "/var/lib/gramsetu-speaker",
+  "audio_device": "auto",
+  "default_volume": 80,
+  "sync_interval_seconds": 300,
+  "schedule_grace_seconds": 600,
+  "report_flush_seconds": 15,
+  "state_interval_seconds": 5
+}

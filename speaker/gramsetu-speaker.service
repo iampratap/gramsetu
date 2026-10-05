@@ -1,0 +1,22 @@
+[Unit]
+Description=GramSetu speaker node
+After=network-online.target sound.target time-sync.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=gramsetu
+Group=gramsetu
+SupplementaryGroups=audio video systemd-journal
+Environment=GRAMSETU_CONFIG=/etc/gramsetu-speaker/config.json
+Environment=PYTHONUNBUFFERED=1
+WorkingDirectory=/opt/gramsetu-speaker
+ExecStart=/usr/bin/python3 -m gramsetu_speaker
+Restart=always
+RestartSec=5
+NoNewPrivileges=true
+ProtectSystem=full
+ReadWritePaths=/var/lib/gramsetu-speaker
+
+[Install]
+WantedBy=multi-user.target
