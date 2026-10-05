@@ -11,7 +11,7 @@ import socket
 import time
 import uuid
 from dataclasses import dataclass, field
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 
 import aiohttp
 
@@ -523,6 +523,11 @@ class Agent:
             if not path:
                 self._record(item, "FAILED", "Audio file is not stored on the speaker")
                 continue
+            # The modified time doubles as "last played" for the cache clean-up.
+            try:
+                os.utime(path)
+            except OSError:
+                pass
             item.started_at = now_utc()
             item.offline = not self.online
             try:
@@ -633,6 +638,7 @@ class Agent:
             if time.monotonic() - last_prune > 3600:
                 last_prune = time.monotonic()
                 self.store.prune()
+                self._prune_cache(set(self._needed_audio(now_utc())))
             await asyncio.sleep(1)
 
     async def _sync_loop(self):
@@ -661,16 +667,18 @@ class Agent:
                 if abs(self.clock_skew) > 60:
                     log.warning("clock is off by %.0f s; schedules depend on the system clock", self.clock_skew)
 
-            self.store.replace_schedules(data.get("schedules", []))
+            previous = self.store.schedules()
+            schedules = data.get("schedules", [])
+            self.store.replace_schedules(schedules)
             server_deliveries = data.get("deliveries", [])
             for delivery in server_deliveries:
                 self.store.add_delivery(delivery)
             self.store.drop_pending_deliveries({item["id"] for item in server_deliveries})
 
-            needed = {item["audio"]["id"]: item["audio"] for item in data.get("schedules", [])}
-            for delivery in self.store.pending_deliveries():
-                needed[delivery["audio"]["id"]] = delivery["audio"]
-            for audio in needed.values():
+            now = now_utc()
+            needed = self._needed_audio(now)
+            self._hold_dropped(previous, schedules, set(needed), now)
+            for audio in self._audio_to_download(now).values():
                 await self._ensure_audio(audio)
             self._prune_cache(set(needed))
 
@@ -718,19 +726,89 @@ class Agent:
                     os.unlink(partial)
                 return None
 
+    def _needed_audio(self, now) -> dict[str, dict]:
+        """Files that must stay on the speaker: schedules with plays ahead (or that ended less than
+        finished_keep_days ago) and announcements still waiting to play."""
+        keep = timedelta(days=self.config.finished_keep_days)
+        needed = {}
+        for schedule in self.store.schedules():
+            if scheduling.has_future(schedule, now) or scheduling.finished_at(schedule, now) + keep > now:
+                needed[schedule["audio"]["id"]] = schedule["audio"]
+        for delivery in self.store.pending_deliveries():
+            needed[delivery["audio"]["id"]] = delivery["audio"]
+        return needed
+
+    def _audio_to_download(self, now) -> dict[str, dict]:
+        """Only what can still play; a finished schedule's file is never fetched again."""
+        wanted = {item["audio"]["id"]: item["audio"] for item in self.store.schedules() if scheduling.has_future(item, now)}
+        for delivery in self.store.pending_deliveries():
+            wanted[delivery["audio"]["id"]] = delivery["audio"]
+        return wanted
+
+    def _hold_dropped(self, previous: list[dict], current: list[dict], needed: set[str], now):
+        """Decide how long to keep the file of each schedule the server stopped sending."""
+        current_audio = {item["id"]: item["audio"]["id"] for item in current}
+        for schedule in previous:
+            audio_id = schedule["audio"]["id"]
+            if current_audio.get(schedule["id"]) == audio_id or audio_id in needed:
+                continue
+            if scheduling.has_future(schedule, now):
+                # Cancelled, deleted, paused, or given new audio: nothing will play it.
+                self.store.hold_audio(audio_id, 0, f"“{schedule['title']}” was cancelled or changed")
+            else:
+                until = scheduling.finished_at(schedule, now) + timedelta(days=self.config.finished_keep_days)
+                self.store.hold_audio(audio_id, until.timestamp(), f"“{schedule['title']}” finished")
+
     def _prune_cache(self, keep: set[str]):
         busy = {item.audio.get("id") for item in self.queue}
         if self.current:
             busy.add(self.current.audio.get("id"))
-        cutoff = time.time() - 86400
-        for name in os.listdir(self.cache_dir):
-            audio_id = name.split(".")[0]
+        holds = self.store.audio_holds()
+        for audio_id in keep & set(holds):
+            # Rescheduled or resumed: keep it again.
+            self.store.release_audio(audio_id)
+            holds.pop(audio_id)
+
+        now = time.time()
+        spare = []
+        names = os.listdir(self.cache_dir)
+        for audio_id in set(holds) - {name.split(".")[0] for name in names}:
+            self.store.release_audio(audio_id)
+        for name in names:
             path = os.path.join(self.cache_dir, name)
+            audio_id = name.split(".")[0]
+            try:
+                modified = os.path.getmtime(path)
+            except OSError:
+                continue
+            if name.endswith(".part"):
+                lock = self.download_locks.get(audio_id)
+                if not (lock and lock.locked()) and modified < now - 3600:
+                    self._delete_cached(path, audio_id, "unfinished download")
+                continue
             if audio_id in keep or audio_id in busy:
                 continue
-            # Keep recent live-test files around for a day.
-            if os.path.getmtime(path) < cutoff:
-                os.unlink(path)
+            keep_until, reason = holds.get(audio_id, (modified + self.config.played_keep_hours * 3600, "not needed any more"))
+            if keep_until <= now:
+                self._delete_cached(path, audio_id, reason)
+            else:
+                spare.append((modified, path, audio_id))
+
+        # Running out of room: drop files nothing needs right now, oldest first.
+        for _, path, audio_id in sorted(spare):
+            if shutil.disk_usage(self.cache_dir).free // (1024 * 1024) >= self.config.min_free_mb:
+                break
+            self._delete_cached(path, audio_id, "low disk space")
+
+    def _delete_cached(self, path: str, audio_id: str, reason: str):
+        try:
+            size = os.path.getsize(path)
+            os.unlink(path)
+        except OSError as error:
+            log.warning("could not delete cached %s: %s", os.path.basename(path), error)
+            return
+        self.store.release_audio(audio_id)
+        log.info("deleted cached audio %s (%.1f MB): %s", os.path.basename(path), size / 1048576, reason)
 
     # ---- reports and live state ----------------------------------------------
 
@@ -834,6 +912,7 @@ class Agent:
             "nextSchedule": {"scheduleId": upcoming[0]["id"], "title": upcoming[0]["title"], "at": iso(upcoming[1])} if upcoming else None,
             "schedules": len(self.store.schedules()),
             "cachedFiles": len([name for name in os.listdir(self.cache_dir) if name.endswith(".wav")]),
+            "cacheMb": round(sum(entry.stat().st_size for entry in os.scandir(self.cache_dir) if entry.is_file()) / 1048576, 1),
             "pendingReports": self.store.unsynced_count(),
             "pendingLogs": self.store.log_count(),
             "logLevel": self.logbook.level_name,

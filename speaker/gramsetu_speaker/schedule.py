@@ -51,6 +51,28 @@ def due(schedules: list[dict], now: datetime, grace_seconds: int):
                     yield schedule, at
 
 
+def has_future(schedule: dict, now: datetime) -> bool:
+    """True while the schedule still has a play time ahead of `now`."""
+    today = now.astimezone(_tz(schedule)).date()
+    if schedule["startDate"] > today.isoformat():
+        return bool(schedule.get("times"))
+    end = schedule.get("endDate")
+    if schedule["repeat"] != "ONCE" and (not end or end > (today + timedelta(days=7)).isoformat()):
+        # Every week has at least one run day, so there is a play ahead.
+        return bool(schedule.get("times")) and (schedule["repeat"] != "WEEKLY" or bool(schedule.get("daysOfWeek")))
+    return next_occurrence([schedule], now, horizon_days=9) is not None
+
+
+def finished_at(schedule: dict, now: datetime) -> datetime:
+    """When the last play time of a schedule with nothing left ahead was (never later than `now`)."""
+    day_text = schedule["startDate"] if schedule["repeat"] == "ONCE" else schedule.get("endDate")
+    if not day_text or not schedule.get("times"):
+        return now
+    day = date.fromisoformat(day_text)
+    last = max(_occurrences_on(schedule, day))
+    return min(last, now)
+
+
 def next_occurrence(schedules: list[dict], now: datetime, horizon_days: int = 8):
     best = None
     for schedule in schedules:

@@ -98,6 +98,16 @@ WebSocket open to `/ws/device`, caches approved announcements and their audio in
 own clock when the network is down. Play reports are stored on
 the Pi and uploaded when it reconnects.
 
+The audio cache cleans itself up. Audio is downloaded only for announcements that still have a play
+time ahead. When an announcement is cancelled, deleted, paused, or given new audio, its file is deleted
+at the next sync. A finished announcement's file is kept for `finished_keep_days` (7) after its last
+play, so a rerun does not download it again. Live-test and one-off announcement files go
+`played_keep_hours` (24) after they last played. A rescheduled or resumed announcement is downloaded
+again. If free space drops below `min_free_mb` (300), unneeded files are deleted early, oldest first.
+Files are never deleted while playing or queued, and clean-up also runs hourly while offline.
+Each deletion is written to the device log with its reason. These settings can be changed in
+`/etc/gramsetu-speaker/config.json`.
+
 To install a new node, open the speaker in **Speakers → Edit** and run the setup command shown there on the Pi:
 
 ```bash

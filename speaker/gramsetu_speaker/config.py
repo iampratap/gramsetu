@@ -18,6 +18,11 @@ class Config:
     sync_interval_seconds: int = 300
     # How late a scheduled play may start (e.g. after a reboot) before it is skipped.
     schedule_grace_seconds: int = 600
+    # Audio cache: days to keep a finished schedule's file, hours to keep live-test and
+    # one-off announcement files after they last played, and free space to protect.
+    finished_keep_days: int = 7
+    played_keep_hours: int = 24
+    min_free_mb: int = 300
     report_flush_seconds: int = 15
     state_interval_seconds: int = 5
     # Lowest level sent to the GramSetu log viewer; admins can change it at runtime.

@@ -7,6 +7,9 @@
   "default_volume": 80,
   "sync_interval_seconds": 300,
   "schedule_grace_seconds": 600,
+  "finished_keep_days": 7,
+  "played_keep_hours": 24,
+  "min_free_mb": 300,
   "report_flush_seconds": 15,
   "state_interval_seconds": 5
 }

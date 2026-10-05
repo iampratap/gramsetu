@@ -23,6 +23,7 @@ CREATE TABLE IF NOT EXISTS reports (
   created_at REAL NOT NULL
 );
 CREATE INDEX IF NOT EXISTS reports_synced ON reports (synced, created_at);
+CREATE TABLE IF NOT EXISTS audio_holds (audio_id TEXT PRIMARY KEY, keep_until REAL NOT NULL, reason TEXT NOT NULL);
 CREATE TABLE IF NOT EXISTS logs (
   seq INTEGER PRIMARY KEY AUTOINCREMENT,
   local_id TEXT NOT NULL UNIQUE,
@@ -59,6 +60,22 @@ class Store:
 
     def schedules(self) -> list[dict]:
         return [json.loads(row[0]) for row in self.db.execute("SELECT body FROM schedules")]
+
+    # How long to keep a cached file whose schedule is no longer on the server.
+
+    def hold_audio(self, audio_id: str, keep_until: float, reason: str):
+        self.db.execute(
+            "INSERT INTO audio_holds (audio_id, keep_until, reason) VALUES (?, ?, ?) "
+            "ON CONFLICT(audio_id) DO UPDATE SET reason = CASE WHEN excluded.keep_until > keep_until "
+            "THEN excluded.reason ELSE reason END, keep_until = MAX(keep_until, excluded.keep_until)",
+            (audio_id, keep_until, reason),
+        )
+
+    def audio_holds(self) -> dict[str, tuple[float, str]]:
+        return {row[0]: (row[1], row[2]) for row in self.db.execute("SELECT audio_id, keep_until, reason FROM audio_holds")}
+
+    def release_audio(self, audio_id: str):
+        self.db.execute("DELETE FROM audio_holds WHERE audio_id = ?", (audio_id,))
 
     def add_delivery(self, delivery: dict) -> bool:
         cursor = self.db.execute(
