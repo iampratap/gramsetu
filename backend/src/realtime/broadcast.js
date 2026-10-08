@@ -1,5 +1,5 @@
 import { prisma } from "../db.js";
-import { canControlSpeaker } from "../lib/http.js";
+import { canBroadcast, canControlSpeaker } from "../lib/http.js";
 import { devices } from "./registry.js";
 
 export const BROADCAST_SAMPLE_RATE = 16_000;
@@ -80,6 +80,7 @@ async function endSession(session, reason) {
 }
 
 async function startSession(ws, user, message) {
+  if (!canBroadcast(user)) return send(ws, { type: "error", message: "Only admins can start a live broadcast" });
   const ids = [...new Set(Array.isArray(message.speakerIds) ? message.speakerIds.map(String) : [])];
   if (ids.length === 0) return send(ws, { type: "error", message: "Choose at least one speaker" });
   if (ids.length > MAX_SPEAKERS) return send(ws, { type: "error", message: `Choose at most ${MAX_SPEAKERS} speakers` });

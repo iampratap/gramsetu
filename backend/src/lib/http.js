@@ -92,6 +92,11 @@ export function canControlSpeaker(user, speaker) {
   return isGlobal(user) || (Boolean(user.areaId) && user.areaId === speaker.areaId);
 }
 
+/** Live broadcast is admin-only (super admin and admin). */
+export function canBroadcast(user) {
+  return isGlobal(user);
+}
+
 export function effectiveSpeakerStatus(speaker) {
   if (!speaker.isActive) return "RETIRED";
   if (speaker.status === "MAINTENANCE") return "MAINTENANCE";

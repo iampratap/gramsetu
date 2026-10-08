@@ -8,7 +8,7 @@ Announcement desk for villages. Platform admins set up areas and speakers. A mak
 | Role        | What they do                                                   |
 | ----------- | -------------------------------------------------------------- |
 | Super admin | Everything an admin can do, plus creating platform admins                         |
-| Admin       | Manages areas, speakers and users; creates *and* approves announcements in any area |
+| Admin       | Manages areas, speakers and users; creates *and* approves announcements; live broadcast |
 | Maker       | Uploads audio and creates, edits, pauses and deletes announcements in their area    |
 | Checker     | Approves, rejects and pauses announcements in their area (not ones they created)    |
 
@@ -142,13 +142,13 @@ then set "audio_device" in /etc/gramsetu-speaker/config.json (e.g. "alsa/plughw:
 
 ### Live broadcast
 
-**Live broadcast** lets anyone who can control speakers (admins for all areas, makers and checkers for
-their own area) pick speakers and talk from the browser. The page records 16 kHz mono PCM in 40 ms
-frames and sends it to `/ws/broadcast`; the API relays the frames over each speaker's device socket and
-the Pi plays them through a separate low-latency mpv. Whatever was playing pauses and resumes
-afterwards. Speakers that are offline or drop out join or rejoin automatically while the broadcast is
-still running. Broadcasts are capped at 60 minutes, are listed in history, and each speaker files a
-play report with source `BROADCAST`.
+**Live broadcast** is for super admins and admins only. They pick speakers and talk from the browser
+(or play an audio file). The page records 16 kHz mono PCM in 40 ms frames and sends it to
+`/ws/broadcast`; the API relays the frames over each speaker's device socket and the Pi plays them
+through a separate low-latency mpv. Whatever was playing pauses and resumes afterwards. Speakers that
+are offline or drop out join or rejoin automatically while the broadcast is still running. Broadcasts
+are capped at 60 minutes, are listed in history, and each speaker files a play report with source
+`BROADCAST`. Makers and checkers do not see the page and cannot start a broadcast.
 
 ### Delivery status per speaker
 

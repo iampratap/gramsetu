@@ -3,7 +3,7 @@ import jwt from "jsonwebtoken";
 import { WebSocketServer } from "ws";
 import { prisma } from "../db.js";
 import { authenticateDevice } from "../lib/device-auth.js";
-import { HttpError, effectiveSpeakerStatus, isGlobal } from "../lib/http.js";
+import { HttpError, canBroadcast, effectiveSpeakerStatus, isGlobal } from "../lib/http.js";
 import { devices } from "./registry.js";
 import { ingestDeviceLogs, onLogViewer, startLogRetention } from "./logs.js";
 import { claimTunnel, onTerminal, onTunnel, tunnelFailed } from "./terminal.js";
@@ -291,6 +291,7 @@ export function attachRealtime(server) {
         });
       } else if (url.pathname === "/ws/broadcast") {
         const user = await authenticateViewer(url.searchParams.get("token"));
+        if (!canBroadcast(user)) throw new HttpError(403, "Only admins can start a live broadcast");
         broadcastWss.handleUpgrade(req, socket, head, (ws) => {
           broadcastWss.emit("connection", ws, req);
           onBroadcaster(ws, user);

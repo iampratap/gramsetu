@@ -50,7 +50,7 @@ export default function App() {
         <Route path="live" element={<Navigate to="/speakers" replace />} />
         <Route path="schedules" element={<Navigate to="/announcements" replace />} />
         <Route path="reports" element={<Reports />} />
-        <Route path="broadcast" element={<Broadcast />} />
+        <Route path="broadcast" element={<Guard roles={["SUPERADMIN", "ADMIN"]}><Broadcast /></Guard>} />
         <Route path="device-logs" element={<Guard roles={["SUPERADMIN", "ADMIN"]}><DeviceLogs /></Guard>} />
         <Route path="remote-shell" element={<Guard roles={["SUPERADMIN", "ADMIN"]}><Suspense fallback={<div className="boot">Loading terminal…</div>}><RemoteShell /></Suspense></Guard>} />
       </Route>
